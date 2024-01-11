@@ -3,6 +3,7 @@ from django.views.decorators.http import require_http_methods
 from .models import Conference, Location, State
 from common.json import ModelEncoder
 import json
+from .acls import get_photo, get_weather_data
 
 
 @require_http_methods(["GET", "POST"])
@@ -73,6 +74,7 @@ class LocationDetailEncoder(ModelEncoder):
         "room_count",
         "created",
         "updated",
+        "picture_url",
     ]
 
     def get_extra_data(self, o):
@@ -83,8 +85,21 @@ class LocationDetailEncoder(ModelEncoder):
 def api_show_conference(request, id):
     if request.method == "GET":
         conference = Conference.objects.get(id=id)
-        conference_dict = ConferenceDetailEncoder().default(conference)
-        return JsonResponse(conference_dict, safe=False)
+
+        # Use the city and state abbreviation of the Conference's Location
+        # to call the get_weather_data ACL function and get back a dictionary
+        # that contains the weather data
+        city = conference.location.city
+        state_abbreviation = conference.location.state.name
+        # weather = get_weather_data("Oakland", "CA")
+        weather = get_weather_data(city, state_abbreviation)
+
+        # Include the weather data in the JsonResponse (see it in the dictionary?)
+        return JsonResponse(
+            {"conference": conference, "weather": weather},
+            encoder=ConferenceDetailEncoder,
+            safe=False,
+        )
     elif request.method == "PUT":
         content = json.loads(request.body)
 
@@ -127,6 +142,12 @@ def api_list_locations(request):
                 {"message": "Invalid state abbreviation"},
                 status=400,
             )
+
+        # Get the Location object and put it in the content dict
+        city = content["city"]
+        state_abbreviation = content["state"].abbreviation
+        photo = get_photo(city, state_abbreviation)
+        content.update(photo)
 
         location = Location.objects.create(**content)
         return JsonResponse(

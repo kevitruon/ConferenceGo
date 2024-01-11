@@ -38,6 +38,7 @@ class Location(models.Model):
         related_name="+",  # do not create a related name on State
         on_delete=models.PROTECT,
     )
+    picture_url = models.URLField(blank=True)
 
     def get_api_url(self):
         return reverse("api_show_location", kwargs={"id": self.id})
