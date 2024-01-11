@@ -1,64 +1,87 @@
 from django.http import JsonResponse
 
-from .models import Presentation
+from .models import Presentation, Status
+from common.json import ModelEncoder
+from django.views.decorators.http import require_http_methods
+from events.models import Conference
+import json
 
 
-def api_list_presentations(request, conference_id):
-    """
-    Lists the presentation titles and the link to the
-    presentation for the specified conference id.
+@require_http_methods(["GET", "POST"])
+def api_list_presentations(request, conference_id=None):
+    if request.method == "GET":
+        if conference_id is not None:
+            presentations = Presentation.objects.filter(
+                conference_id=conference_id
+            )
+            presentations_list = [
+                PresentationListEncoder().default(pres)
+                for pres in presentations
+            ]
+            return JsonResponse(
+                {"presentations": presentations_list},
+                safe=False,
+            )
+    else:  # POST branch
+        content = json.loads(request.body)
 
-    Returns a dictionary with a single key "presentations"
-    which is a list of presentation titles and URLS. Each
-    entry in the list is a dictionary that contains the
-    title of the presentation, the name of its status, and
-    the link to the presentation's information.
+        # Get the Conference object and put its id in the content dict
+        try:
+            conference = Conference.objects.get(id=conference_id)
+            content["conference_id"] = conference.id
+        except Conference.DoesNotExist:
+            return JsonResponse(
+                {"message": "Invalid conference id"},
+                status=400,
+            )
 
-    {
-        "presentations": [
-            {
-                "title": presentation's title,
-                "status": presentation's status name
-                "href": URL to the presentation,
-            },
-            ...
-        ]
-    }
-    """
-    presentations = [
-        {
-            "title": p.title,
-            "status": p.status.name,
-            "href": p.get_api_url(),
-        }
-        for p in Presentation.objects.filter(conference=conference_id)
+        presentation = Presentation.create(**content)
+        return JsonResponse(
+            PresentationDetailEncoder().default(presentation),
+            safe=False,
+        )
+
+
+class PresentationListEncoder(ModelEncoder):
+    model = Presentation
+    properties = ["title"]
+
+
+class PresentationDetailEncoder(ModelEncoder):
+    model = Presentation
+    properties = [
+        "presenter_name",
+        "company_name",
+        "presenter_email",
+        "title",
+        "synopsis",
+        "created",
     ]
-    return JsonResponse({"presentations": presentations})
 
 
+@require_http_methods(["GET", "PUT", "DELETE"])
 def api_show_presentation(request, id):
-    """
-    Returns the details for the Presentation model specified
-    by the id parameter.
-
-    This should return a dictionary with the presenter's name,
-    their company name, the presenter's email, the title of
-    the presentation, the synopsis of the presentation, when
-    the presentation record was created, its status name, and
-    a dictionary that has the conference name and its URL
-
-    {
-        "presenter_name": the name of the presenter,
-        "company_name": the name of the presenter's company,
-        "presenter_email": the email address of the presenter,
-        "title": the title of the presentation,
-        "synopsis": the synopsis for the presentation,
-        "created": the date/time when the record was created,
-        "status": the name of the status for the presentation,
-        "conference": {
-            "name": the name of the conference,
-            "href": the URL to the conference,
-        }
-    }
-    """
-    return JsonResponse({})
+    if request.method == "GET":
+        presentation = Presentation.objects.get(id=id)
+        return JsonResponse(
+            presentation,
+            encoder=PresentationDetailEncoder,
+            safe=False,
+        )
+    elif request.method == "PUT":
+        content = json.loads(request.body)
+        presentation = Presentation.objects.get(id=id)
+        presentation.presenter_name = content["presenter_name"]
+        presentation.company_name = content["company_name"]
+        presentation.presenter_email = content["presenter_email"]
+        presentation.title = content["title"]
+        presentation.synopsis = content["synopsis"]
+        presentation.save()
+        return JsonResponse(
+            presentation,
+            encoder=PresentationDetailEncoder,
+            safe=False,
+        )
+    else:  # DELETE branch
+        count, _ = Presentation.objects.filter(id=id).delete()
+        return JsonResponse({"deleted": count > 0})
