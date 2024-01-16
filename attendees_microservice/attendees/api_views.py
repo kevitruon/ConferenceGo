@@ -64,16 +64,9 @@ def api_show_attendee(request, id):
     if request.method == "GET":
         attendee = Attendee.objects.get(id=id)
         return JsonResponse(
-            {
-                "email": attendee.email,
-                "name": attendee.name,
-                "company_name": attendee.company_name,
-                "created": attendee.created,
-                "conference": {
-                    "name": attendee.conference.name,
-                    "href": attendee.conference.get_api_url(),
-                },
-            }
+            attendee,
+            encoder=AttendeeDetailEncoder,
+            safe=False,
         )
     elif request.method == "PUT":
         content = json.loads(request.body)
